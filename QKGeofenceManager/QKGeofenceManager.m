@@ -157,6 +157,11 @@ static NSString *const QKInsideRegionsDefaultsKey = @"qk_inside_regions_defaults
         return;
     }
     
+    if (!location) {
+        [self.processingTimer invalidate];
+        [self _QK_setState:QKGeofenceManagerStateIdle];
+    }
+    
     self.boundaryIndicesBeingProcessed = [NSMutableIndexSet indexSet];
     self.regionsGroupedByDistance = [NSMutableDictionary dictionary];
     self.regionsBeingProcessed = [NSMutableArray array];
@@ -166,41 +171,43 @@ static NSString *const QKInsideRegionsDefaultsKey = @"qk_inside_regions_defaults
     NSMutableArray *fencesWithDistanceToBoundary = [NSMutableArray array];
     NSMutableDictionary *minBoundaryDistancesByIndex = [NSMutableDictionary dictionary];
     
-    for (CLCircularRegion *fence in self.allGeofences) {
-        if (fence.radius < self.locationManager.maximumRegionMonitoringDistance) {
-            CLLocation *fenceCenter = [[CLLocation alloc] initWithLatitude:fence.center.latitude longitude:fence.center.longitude];
-            
-            //CLLocationAccuracy accuracy = location.horizontalAccuracy;
-            CLLocationDistance d_r = [location distanceFromLocation:fenceCenter] - fence.radius;
-            [fencesWithDistanceToBoundary addObject:@[fence, @(fabs(d_r))]];
-            
-            if (d_r < 0) {
-                [self.insideRegions addObject:fence];
-            }
-            else {
-                int rounded = (int)d_r;
-                rounded -= rounded % 10;
+    if (location) {
+        for (CLCircularRegion *fence in self.allGeofences) {
+            if (fence.radius < self.locationManager.maximumRegionMonitoringDistance) {
+                CLLocation *fenceCenter = [[CLLocation alloc] initWithLatitude:fence.center.latitude longitude:fence.center.longitude];
                 
-                if (rounded <= 0) {
+                //CLLocationAccuracy accuracy = location.horizontalAccuracy;
+                CLLocationDistance d_r = [location distanceFromLocation:fenceCenter] - fence.radius;
+                [fencesWithDistanceToBoundary addObject:@[fence, @(fabs(d_r))]];
+                
+                if (d_r < 0) {
                     [self.insideRegions addObject:fence];
                 }
-                else if (rounded <= 200) { // Group by distances within 10m of eachother, but no more than 200m away from user.
-                    NSNumber *key = @(rounded);
-                    NSArray *val = self.regionsGroupedByDistance[key];
-                    if (val) {
-                        if ([minBoundaryDistancesByIndex[key] compare:@(d_r)] == NSOrderedDescending) {
-                            val = [@[fence] arrayByAddingObjectsFromArray:val];
-                            minBoundaryDistancesByIndex[key] = @(d_r);
+                else {
+                    int rounded = (int)d_r;
+                    rounded -= rounded % 10;
+                    
+                    if (rounded <= 0) {
+                        [self.insideRegions addObject:fence];
+                    }
+                    else if (rounded <= 200) { // Group by distances within 10m of eachother, but no more than 200m away from user.
+                        NSNumber *key = @(rounded);
+                        NSArray *val = self.regionsGroupedByDistance[key];
+                        if (val) {
+                            if ([minBoundaryDistancesByIndex[key] compare:@(d_r)] == NSOrderedDescending) {
+                                val = [@[fence] arrayByAddingObjectsFromArray:val];
+                                minBoundaryDistancesByIndex[key] = @(d_r);
+                            }
+                            else {
+                                val = [val arrayByAddingObject:fence];
+                            }
                         }
                         else {
-                            val = [val arrayByAddingObject:fence];
+                            val = @[fence];
+                            minBoundaryDistancesByIndex[key] = @(d_r);
                         }
+                        self.regionsGroupedByDistance[key] = val;
                     }
-                    else {
-                        val = @[fence];
-                        minBoundaryDistancesByIndex[key] = @(d_r);
-                    }
-                    self.regionsGroupedByDistance[key] = val;
                 }
             }
         }
